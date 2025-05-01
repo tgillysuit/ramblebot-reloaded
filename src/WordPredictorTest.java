@@ -13,6 +13,9 @@ public class WordPredictorTest {
 
     // Change this seed or the createTestMap() method to customize behavior
     private static final long RANDOM_SEED = 12345L;
+    private static final int N = 100_000;        // size of the "numbers" list
+    private static final int TRIALS = 100_000;  // number of Monte Carlo samples
+    private static final double TOL = 0.02;     // tolerance for frequency assertions
 
     private WordPredictor predictor;
     private Map<String, List<WordProbability>> testMap;
@@ -24,11 +27,16 @@ public class WordPredictorTest {
     }
 
     /**
-     * Modify this method if you want to use your own words and probabilities.
-     * Each list must have strictly ascending cumulativeProbability values ending at 1.0.
+     * Builds a map with three keys:
+     *  • "the"   → [cat(.1), dog(.5), lizard(1.0)]
+     *  • "cat"   → [sat(.6), ate(1.0)]
+     *  • "numbers" → [1(p1), 2(p2), …, N(pN)]
+     *
+     * where the pi are cumulative probabilities summing to 1.0.
      */
     private Map<String, List<WordProbability>> createTestMap() {
         Map<String, List<WordProbability>> map = new HashMap<>();
+        // existing small examples
         map.put("the", List.of(
             new WordProbability("cat",    0.1),
             new WordProbability("dog",    0.5),
@@ -38,34 +46,23 @@ public class WordPredictorTest {
             new WordProbability("sat", 0.6),
             new WordProbability("ate", 1.0)
         ));
-        map.put("alphabet", List.of(
-            new WordProbability("a", 0.034859),
-            new WordProbability("b", 0.098120),
-            new WordProbability("c", 0.153596),
-            new WordProbability("d", 0.213720),
-            new WordProbability("e", 0.225172),
-            new WordProbability("f", 0.293764),
-            new WordProbability("g", 0.354170),
-            new WordProbability("h", 0.392903),
-            new WordProbability("i", 0.423932),
-            new WordProbability("j", 0.474427),
-            new WordProbability("k", 0.512483),
-            new WordProbability("l", 0.580126),
-            new WordProbability("m", 0.586292),
-            new WordProbability("n", 0.603294),
-            new WordProbability("o", 0.613061),
-            new WordProbability("p", 0.613443),
-            new WordProbability("q", 0.647686),
-            new WordProbability("r", 0.680489),
-            new WordProbability("s", 0.740058),
-            new WordProbability("t", 0.770907),
-            new WordProbability("u", 0.826005),
-            new WordProbability("v", 0.879152),
-            new WordProbability("w", 0.917383),
-            new WordProbability("x", 0.943437),
-            new WordProbability("y", 0.971542),
-            new WordProbability("z", 1.000000)
-        ));
+
+        // large "numbers" example
+        Random rnd = new Random(RANDOM_SEED);
+        double[] weights = new double[N];
+        double total = 0;
+        for (int i = 0; i < N; i++) {
+            weights[i] = rnd.nextDouble();
+            total += weights[i];
+        }
+        List<WordProbability> numList = new ArrayList<>(N);
+        double cum = 0;
+        for (int i = 0; i < N; i++) {
+            cum += weights[i] / total;
+            numList.add(new WordProbability(String.valueOf(i + 1), cum));
+        }
+        map.put("numbers", numList);
+
         return map;
     }
 
@@ -115,7 +112,7 @@ public class WordPredictorTest {
         Map<String, List<WordProbability>> map = new HashMap<>();
         map.put("foo", List.of(
             new WordProbability("a", 0.3),
-            new WordProbability("b", 0.7)  // ends at 0.7 instead of 1.0
+            new WordProbability("b", 0.7)  // ends at 0.7
         ));
         assertThrows(IllegalArgumentException.class,
             () -> new WordPredictor(map, new Random()));
@@ -147,15 +144,13 @@ public class WordPredictorTest {
         int trials = 100_000;
         Map<String, Integer> counts = new HashMap<>();
         for (int i = 0; i < trials; i++) {
-            String next = predictor.predict("the");
-            counts.merge(next, 1, Integer::sum);
+            counts.merge(predictor.predict("the"), 1, Integer::sum);
         }
 
         double freqCat    = counts.getOrDefault("cat",    0) / (double) trials;
         double freqDog    = counts.getOrDefault("dog",    0) / (double) trials;
         double freqLizard = counts.getOrDefault("lizard", 0) / (double) trials;
 
-        // Expected probabilities: cat=0.1, dog=0.4, lizard=0.5
         double tol = 0.02;
         assertEquals(0.10, freqCat,    tol, "cat frequency out of tolerance");
         assertEquals(0.40, freqDog,    tol, "dog frequency out of tolerance");
@@ -167,81 +162,31 @@ public class WordPredictorTest {
         int trials = 100_000;
         Map<String, Integer> counts = new HashMap<>();
         for (int i = 0; i < trials; i++) {
-            String next = predictor.predict("cat");
-            counts.merge(next, 1, Integer::sum);
+            counts.merge(predictor.predict("cat"), 1, Integer::sum);
         }
 
         double freqSat = counts.getOrDefault("sat", 0) / (double) trials;
         double freqAte = counts.getOrDefault("ate", 0) / (double) trials;
 
-        // Expected probabilities: sat=0.6, ate=0.4
         double tol = 0.02;
         assertEquals(0.60, freqSat, tol, "sat frequency out of tolerance");
         assertEquals(0.40, freqAte, tol, "ate frequency out of tolerance");
     }
 
     @Test
-    void monteCarloDistributionForAlphabet() {
-        int trials = 300_000;
+    void monteCarloDistributionForNumbers() {
         Map<String, Integer> counts = new HashMap<>();
-        for (int i = 0; i < trials; i++) {
-            String next = predictor.predict("alphabet");
-            counts.merge(next, 1, Integer::sum);
+        for (int i = 0; i < TRIALS; i++) {
+            counts.merge(predictor.predict("numbers"), 1, Integer::sum);
         }
 
-        double tol = 0.01;
-        // Monte Carlo assertions
-        double freqA = counts.getOrDefault("a", 0) / (double) trials;
-        assertEquals(0.034859, freqA, tol, "a frequency out of tolerance");
-        double freqB = counts.getOrDefault("b", 0) / (double) trials;
-        assertEquals(0.063261, freqB, tol, "b frequency out of tolerance");
-        double freqC = counts.getOrDefault("c", 0) / (double) trials;
-        assertEquals(0.055476, freqC, tol, "c frequency out of tolerance");
-        double freqD = counts.getOrDefault("d", 0) / (double) trials;
-        assertEquals(0.060123, freqD, tol, "d frequency out of tolerance");
-        double freqE = counts.getOrDefault("e", 0) / (double) trials;
-        assertEquals(0.011452, freqE, tol, "e frequency out of tolerance");
-        double freqF = counts.getOrDefault("f", 0) / (double) trials;
-        assertEquals(0.068591, freqF, tol, "f frequency out of tolerance");
-        double freqG = counts.getOrDefault("g", 0) / (double) trials;
-        assertEquals(0.060407, freqG, tol, "g frequency out of tolerance");
-        double freqH = counts.getOrDefault("h", 0) / (double) trials;
-        assertEquals(0.038732, freqH, tol, "h frequency out of tolerance");
-        double freqI = counts.getOrDefault("i", 0) / (double) trials;
-        assertEquals(0.031029, freqI, tol, "i frequency out of tolerance");
-        double freqJ = counts.getOrDefault("j", 0) / (double) trials;
-        assertEquals(0.050496, freqJ, tol, "j frequency out of tolerance");
-        double freqK = counts.getOrDefault("k", 0) / (double) trials;
-        assertEquals(0.038056, freqK, tol, "k frequency out of tolerance");
-        double freqL = counts.getOrDefault("l", 0) / (double) trials;
-        assertEquals(0.067643, freqL, tol, "l frequency out of tolerance");
-        double freqM = counts.getOrDefault("m", 0) / (double) trials;
-        assertEquals(0.006165, freqM, tol, "m frequency out of tolerance");
-        double freqN = counts.getOrDefault("n", 0) / (double) trials;
-        assertEquals(0.017003, freqN, tol, "n frequency out of tolerance");
-        double freqO = counts.getOrDefault("o", 0) / (double) trials;
-        assertEquals(0.009766, freqO, tol, "o frequency out of tolerance");
-        double freqP = counts.getOrDefault("p", 0) / (double) trials;
-        assertEquals(0.000382, freqP, tol, "p frequency out of tolerance");
-        double freqQ = counts.getOrDefault("q", 0) / (double) trials;
-        assertEquals(0.034244, freqQ, tol, "q frequency out of tolerance");
-        double freqR = counts.getOrDefault("r", 0) / (double) trials;
-        assertEquals(0.032802, freqR, tol, "r frequency out of tolerance");
-        double freqS = counts.getOrDefault("s", 0) / (double) trials;
-        assertEquals(0.059570, freqS, tol, "s frequency out of tolerance");
-        double freqT = counts.getOrDefault("t", 0) / (double) trials;
-        assertEquals(0.030849, freqT, tol, "t frequency out of tolerance");
-        double freqU = counts.getOrDefault("u", 0) / (double) trials;
-        assertEquals(0.055098, freqU, tol, "u frequency out of tolerance");
-        double freqV = counts.getOrDefault("v", 0) / (double) trials;
-        assertEquals(0.053147, freqV, tol, "v frequency out of tolerance");
-        double freqW = counts.getOrDefault("w", 0) / (double) trials;
-        assertEquals(0.038232, freqW, tol, "w frequency out of tolerance");
-        double freqX = counts.getOrDefault("x", 0) / (double) trials;
-        assertEquals(0.026054, freqX, tol, "x frequency out of tolerance");
-        double freqY = counts.getOrDefault("y", 0) / (double) trials;
-        assertEquals(0.028104, freqY, tol, "y frequency out of tolerance");
-        double freqZ = counts.getOrDefault("z", 0) / (double) trials;
-        assertEquals(0.028458, freqZ, tol, "z frequency out of tolerance");
+        List<WordProbability> list = testMap.get("numbers");
+        double prev = 0.0;
+        for (WordProbability wp : list) {
+            double expected = wp.cumulativeProbability() - prev;
+            double freq = counts.getOrDefault(wp.word(), 0) / (double) TRIALS;
+            assertEquals(expected, freq, TOL, wp.word() + " frequency out of tolerance");
+            prev = wp.cumulativeProbability();
+        }
     }
 }
