@@ -107,6 +107,8 @@ public class WordPredictor {
     public String predict(String word) {
         // Implement this so it runs in O(log(n)) time where n is probs.get(word).size()
         // Having a hard time getting started? Implement it in O(n) time first, then optimize.
+        // On my computer the linear version causes the tests to take about 20seconds, and the log
+        // version runs in less than two. Your results may vary.
         // Hint: The Random class has an instance method "nextDouble" that returns a value in the range [0., 1.]
         return null;
     }
